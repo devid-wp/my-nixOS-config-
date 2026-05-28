@@ -1,113 +1,120 @@
 { config, pkgs, ... }:
-
 {
   imports = [ ./hardware-configuration.nix ];
 
-  # --- ЗАГРУЗЧИК И ДУАЛБУТ С WINDOWS 11 ---
-  boot.loader.systemd-boot.enable = true;
-  boot.loader.efi.canTouchEfiVariables = true;
-  boot.loader.systemd-boot.configurationLimit = 10; 
+  # Настройки графики
+  hardware.graphics = {
+    enable = true;
+    enable32Bit = true;
+  };
 
-  # --- СЕТЬ И ЛОКАЛИЗАЦИЯ (КИЕВ) ---
-  networking.hostName = "david-nixos";
+  # Используем самое свежее ядро
+  boot.kernelPackages = pkgs.linuxPackages_latest;
+  
+  # Модули ядра: amdgpu для графики, btusb для Bluetooth, 
+  # и rtw88_8821au (встроенный драйвер для твоего TP-Link AC600)
+  boot.kernelModules = [ "amdgpu" "btusb" "rtw88_8821au" ];
+  
+  # Включаем абсолютно все прошивки, чтобы ядро подтянуло бинарники для Realtek
+  hardware.enableAllFirmware = true;
+  hardware.firmware = [ pkgs.linux-firmware ];
+
+  # Чистый список кастомных модулей (пусть ядро использует только встроенные)
+  boot.extraModulePackages = [ ];
+
+  # Очистили старые tmpfiles-костыли
+  systemd.tmpfiles.rules = [];
+
+  # Блеклист неиспользуемых модулей Mediatek
+  boot.blacklistedKernelModules = [ "mt7925e" "mt7925_common" ];
+
+  # Настройка загрузчика GRUB с твоей любимой темой OneShot
+  boot.loader.systemd-boot.enable = false;
+  boot.loader.grub = {
+    enable = true;
+    efiSupport = true;
+    device = "nodev";
+    useOSProber = true;
+    theme = ./OneshotGrubTheme;
+  };
+  boot.loader.efi.canTouchEfiVariables = true;
+
+  # Сеть и локализация
+  networking.hostName = "nixos";
   networking.networkmanager.enable = true;
   time.timeZone = "Europe/Kyiv";
-  i18n.defaultLocale = "uk_UA.UTF-8";
 
-  # --- ГРАФИКА И ЖЕЛЕЗО (Твой ASUS Vivobook AMD) ---
-  services.xserver.videoDrivers = [ "amdgpu" ];
-  hardware.cpu.amd.updateMicrocode = true;
-  hardware.opengl = {
+  # Разрешаем Unfree пакеты
+  nixpkgs.config.allowUnfree = true;
+
+  # Bluetooth
+  hardware.bluetooth.enable = true;
+  hardware.bluetooth.powerOnBoot = true;
+
+  # Рабочее окружение KDE Plasma 6 и дисплейный менеджер SDDM
+  services.desktopManager.plasma6.enable = true;
+  services.displayManager.sddm = {
     enable = true;
-    driSupport = true;
-    driSupport32Bit = true; # Важно для игр (Roblox/Minecraft)
+    wayland.enable = true;
   };
 
-  # --- РАБОЧЕЕ ОКРУЖЕНИЕ PANTHEON ---
-  services.xserver = {
-    enable = true;
-    displayManager.lightdm.enable = true;
-    desktopManager.pantheon.enable = true;
-  };
-  # Позволяет настраивать Pantheon (темы, шрифты)
-  programs.pantheon-tweaks.enable = true;
-
-  # --- ТВОЙ ЮЗЕР И ГРУППЫ ---
-  users.users.david = {
+  # Настройка пользователя devid
+  users.defaultUserShell = pkgs.zsh;
+  users.users.devid = {
     isNormalUser = true;
     description = "David";
-    extraGroups = [ "networkmanager" "wheel" "wireshark" "docker" "video" ];
+    extraGroups = [ "networkmanager" "wheel" "wireshark" ];
     shell = pkgs.zsh;
   };
 
-  # --- БОЖЕСТВЕННЫЙ ТЕРМИНАЛ (Zsh + Starship + "T9") ---
+  # Настройки оболочки Zsh
   programs.zsh = {
     enable = true;
     enableCompletion = true;
-    autosuggestions.enable = true; # Автодополнение как в CachyOS
-    syntaxHighlighting.enable = true; # Подсветка команд
-    promptInit = ''
-      eval "$(starship init zsh)"
+    autosuggestions.enable = true;
+    syntaxHighlighting.enable = true;
+    interactiveShellInit = ''
+      zstyle ':completion:*' menu select
+      zstyle ':completion:*' matcher-list 'm:{a-zA-Z}={A-Za-z}'
+      bindkey '^[[C' forward-word
     '';
   };
 
-  programs.starship = {
-    enable = true;
-    settings = {
-      add_newline = false;
-      character = {
-        success_symbol = "[➜](bold green)";
-        error_symbol = "[➜](bold red)";
-      };
-    };
-  };
+  # Включаем системный сервис Wireshark для управления правами
+  programs.wireshark.enable = true;
 
-  # --- СИСТЕМНЫЕ ПАКЕТЫ (Кодинг + Инструменты) ---
+  # Системные пакеты (Твой софт + инструменты для ИИ-агента и свистка)
   environment.systemPackages = with pkgs; [
-    # Консоль и системное
-    kitty          # Быстрый и современный терминал
-    starship       # Дизайн строки запроса
-    fastfetch      # Красивое инфо о системе
-    git
+    kitty
+    papirus-icon-theme
+    kdePackages.plasma-browser-integration
+    firefox
+    fastfetch
+    telegram-desktop
+    vscode
     wget
-    htop
+    curl
     pciutils
     usbutils
+    wpa_supplicant
 
-    # Разработка на Python (Django, aiogram)
-    python311
-    python311Packages.pip
-    python311Packages.virtualenv
-    vscode-with-extensions
+    # Глаза для твоего ИИ-агента (чтобы работал автоматический поиск по папкам)
+    git
+    ripgrep
 
-    # Разработка на C++ (Твой Messenger)
-    gcc
-    cmake
-    gnumake
-    openssl
-    nlohmann_json
-
-    # Сетевой аудит (Для интереса к кибербезу)
-    nmap
-    wireshark
+    # Набор для мониторинга и анализа сетей
+    iw
     aircrack-ng
-
-    # Игры и общение
-    prismlauncher  # Лучший лаунчер для Minecraft
-    telegram-desktop
-    discord
-    vlc
+    wirelesstools
+    wireshark
+    tcpdump
   ];
 
-  # --- ДОПОЛНИТЕЛЬНЫЕ СЕРВИСЫ ---
-  virtualisation.docker.enable = true; # Для контейнеров
-  programs.wireshark.enable = true;    # Разрешаем захват пакетов
-  
-  # Шрифты (обязательно для иконок в терминале)
+  # Шрифты
   fonts.packages = with pkgs; [
-    (nerdfonts.override { fonts = [ "JetBrainsMono" "FiraCode" ]; })
+    jetbrains-mono
+    nerd-fonts.symbols-only
   ];
 
-  # Версия системы (не менять)
-  system.stateVersion = "23.11"; 
+  system.stateVersion = "24.11";
 }
